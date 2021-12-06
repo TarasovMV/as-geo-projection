@@ -4,6 +4,7 @@ import * as isNumber from 'lodash.isnumber';
 
 export interface IGeoProjectionDefault<T extends IGeoProjectionFlat | IGeoProjectionWGS> {
     lt: T;
+    lb: T;
     rb: T;
 }
 
@@ -18,38 +19,76 @@ export interface IGeoProjectionWGS {
 }
 
 export class GeoProjection {
-    // private defaultWGS: IGeoProjectionDefault<IGeoProjectionWGS> = {
-    //     lt: {latitude: 55.0982678796, longitude: 73.1202739448},
-    //     rb: {latitude: 55.0643063117, longitude: 73.2950520486},
-    // }
+    private defaultWGS: IGeoProjectionDefault<IGeoProjectionWGS> = {
+        lt: {latitude: 55.098425, longitude: 73.119817},
+        lb: {latitude: 55.033588, longitude: 73.171238},
+        rb: {latitude: 55.065022, longitude: 73.294963},
+    }
+    private defaultFlat: IGeoProjectionDefault<IGeoProjectionFlat> = undefined;
+    private defaultFlatRot: IGeoProjectionDefault<IGeoProjectionFlat> = undefined;
+    private sin: number = undefined;
+    private cos: number = undefined;
+    private delta: IGeoProjectionFlat = undefined;
 
-    private defaultFlat: IGeoProjectionDefault<IGeoProjectionFlat> = {
-        lt: {
-            x: 8139711.6621998055,
-            y: 7380961.309697426,
-        },
-        rb: {
-            x: 8159167.871716635,
-            y: 7374356.672722412,
-        },
+    constructor() {
+        this.setBorders(this.defaultWGS);
     }
 
-    constructor() {}
+    public setBorders(wgs: IGeoProjectionDefault<IGeoProjectionWGS>): void {
+        this.defaultWGS = wgs;
+        this.defaultFlat = {
+            lt: toFlat(wgs.lt),
+            lb: toFlat(wgs.lb),
+            rb: toFlat(wgs.rb),
+        };
+        const dx = this.defaultFlat.lb.x - this.defaultFlat.lt.x;
+        const dy = this.defaultFlat.lt.y - this.defaultFlat.lb.y;
+        const gip = Math.sqrt(dx * dx + dy * dy);
+        const sin = -dx / gip;
+        const cos = dy / gip;
+        this.sin = sin;
+        this.cos = cos;
 
-    public setBorders(config: { wgs: IGeoProjectionDefault<IGeoProjectionWGS>, flat: IGeoProjectionDefault<IGeoProjectionFlat>}): void {
-        this.defaultFlat = config.flat;
-        // this.defaultWGS = config.wgs;
+        this.defaultFlatRot = {
+            lt: {
+                x: this.defaultFlat.lt.x * cos - this.defaultFlat.lt.y * sin,
+                y: this.defaultFlat.lt.x * sin + this.defaultFlat.lt.y * cos,
+            },
+            lb: {
+                x: this.defaultFlat.lb.x * cos - this.defaultFlat.lb.y * sin,
+                y: this.defaultFlat.lb.x * sin + this.defaultFlat.lb.y * cos,
+            },
+            rb: {
+                x: this.defaultFlat.rb.x * cos - this.defaultFlat.rb.y * sin,
+                y: this.defaultFlat.rb.x * sin + this.defaultFlat.rb.y * cos,
+            },
+        };
+        this.delta = {
+            x: this.defaultFlatRot.rb.x - this.defaultFlatRot.lt.x,
+            y: this.defaultFlatRot.lt.y - this.defaultFlatRot.rb.y,
+        };
     }
 
     public getRelativeByWgs(wgs: IGeoProjectionWGS): IGeoProjectionFlat {
         const flat = toFlat(wgs);
-        const delta = {
-            x: this.defaultFlat.rb.x - this.defaultFlat.lt.x,
-            y: this.defaultFlat.lt.y - this.defaultFlat.rb.y,
+        const flatRot = {
+            x: flat.x * this.cos - flat.y * this.sin,
+            y: flat.x * this.sin + flat.y * this.cos,
         };
         return {
-            x: (flat.x - this.defaultFlat.lt.x) / delta.x * 100,
-            y: (flat.y - this.defaultFlat.rb.y) / delta.y * 100,
+            x: (flatRot.x - this.defaultFlatRot.lt.x) / this.delta.x * 100,
+            y: (flatRot.y - this.defaultFlatRot.rb.y) / this.delta.y * 100,
+        };
+    }
+
+    public getRelativeByFlat(flat: IGeoProjectionFlat): IGeoProjectionFlat {
+        const flatRot = {
+            x: flat.x * this.cos - flat.y * this.sin,
+            y: flat.x * this.sin + flat.y * this.cos,
+        };
+        return {
+            x: (flatRot.x - this.defaultFlatRot.lt.x) / this.delta.x * 100,
+            y: (flatRot.y - this.defaultFlatRot.rb.y) / this.delta.y * 100,
         };
     }
 }
@@ -96,10 +135,10 @@ export const toFlat = (coordinates: IGeoProjectionWGS): IGeoProjectionFlat => {
     const proj4coordinates = {
         x: coordinates.longitude,
         y: coordinates.latitude
-    }
-    const projected = proj4.default('WGS84', defaultProjection, proj4coordinates)
+    };
+    const projected = proj4.default('WGS84', defaultProjection, proj4coordinates);
     return ({
         x: projected.x,
         y: projected.y
-    })
+    });
 }
